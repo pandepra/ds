@@ -16,43 +16,51 @@ import java.util.concurrent.TimeUnit;
  */
 public class ExpirableHashSet<E> extends HashSet<E> {
 
-  private long globalDelay;
-  private TimeUnit globalDelayTimeUnit;
-
   private final BlockingQueue<Expirable> delayedQueue = new DelayQueue<>();
   private final Map<E, Expirable> expirableMap = new WeakHashMap<>();
 
-  public ExpirableHashSet(long globalDelay, TimeUnit globalDelayTimeUnit) {
-    super();
-    this.globalDelay = globalDelay;
-    this.globalDelayTimeUnit = globalDelayTimeUnit;
-  }
+  public ExpirableHashSet() {}
 
   public boolean remove(Object o) {
-    super.remove(o);
+    discardExpired();
     Expirable expirable = expirableMap.remove((E) o);
-    return false;
+    expirable.expire();
+    return super.remove(o);
   }
 
   public boolean add(E element) {
-    cleanup();
+    discardExpired();
     return super.add(element);
   }
 
+  public boolean contains(Object o) {
+    discardExpired();
+    return super.contains(o);
+  }
+
   public boolean add(E element, long ttl, TimeUnit timeUnit) {
-    cleanup();
+    discardExpired();
     Expirable wrapper = new Expirable(element, ttl, timeUnit);
     delayedQueue.add(wrapper);
     expirableMap.put(element, wrapper);
-    return add(element);
+    return super.add(element);
+  }
+
+  public long getExpiry(E element) {
+    Expirable expirable = expirableMap.get(element);
+    return expirable.expireAt();
+  }
+
+  public boolean hasExpired(E element) {
+    return expirableMap.containsKey(element);
   }
 
   /*Removes all expired keys from the set*/
-  private void cleanup() {
-    while (null != delayedQueue.peek()) {
-      Expirable poll = delayedQueue.poll();
-      expirableMap.remove(poll.value());
-      super.remove(poll.value());
+  private void discardExpired() {
+    Expirable expiredKey;
+    while (null != (expiredKey = delayedQueue.poll())) {
+      expirableMap.remove(expiredKey.value());
+      super.remove(expiredKey.value());
     }
   }
 
