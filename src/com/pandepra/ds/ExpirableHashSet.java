@@ -1,6 +1,8 @@
 package com.pandepra.ds;
 
 import java.util.HashSet;
+import java.util.Map;
+import java.util.WeakHashMap;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.DelayQueue;
 import java.util.concurrent.Delayed;
@@ -18,11 +20,18 @@ public class ExpirableHashSet<E> extends HashSet<E> {
   private TimeUnit globalDelayTimeUnit;
 
   private final BlockingQueue<Expirable> delayedQueue = new DelayQueue<>();
+  private final Map<E, Expirable> expirableMap = new WeakHashMap<>();
 
   public ExpirableHashSet(long globalDelay, TimeUnit globalDelayTimeUnit) {
     super();
     this.globalDelay = globalDelay;
     this.globalDelayTimeUnit = globalDelayTimeUnit;
+  }
+
+  public boolean remove(Object o) {
+    super.remove(o);
+    Expirable expirable = expirableMap.remove((E) o);
+    return false;
   }
 
   public boolean add(E element) {
@@ -32,8 +41,9 @@ public class ExpirableHashSet<E> extends HashSet<E> {
 
   public boolean add(E element, long ttl, TimeUnit timeUnit) {
     cleanup();
-    Expirable elem = new Expirable(element, ttl, timeUnit);
-    delayedQueue.add(elem);
+    Expirable wrapper = new Expirable(element, ttl, timeUnit);
+    delayedQueue.add(wrapper);
+    expirableMap.put(element, wrapper);
     return add(element);
   }
 
@@ -41,6 +51,7 @@ public class ExpirableHashSet<E> extends HashSet<E> {
   private void cleanup() {
     while (null != delayedQueue.peek()) {
       Expirable poll = delayedQueue.poll();
+      expirableMap.remove(poll.value());
       super.remove(poll.value());
     }
   }
@@ -48,7 +59,7 @@ public class ExpirableHashSet<E> extends HashSet<E> {
   /** An element that may expire at some point in future. Supports millis resolution */
   private class Expirable implements Delayed {
 
-    private final long expireAt;
+    private long expireAt;
     private final E value;
 
     public Expirable(E value, long ttl, TimeUnit unit) {
@@ -62,6 +73,10 @@ public class ExpirableHashSet<E> extends HashSet<E> {
 
     public long expireAt() {
       return this.expireAt;
+    }
+
+    public void expire() {
+      this.expireAt = Long.MIN_VALUE;
     }
 
     @Override
